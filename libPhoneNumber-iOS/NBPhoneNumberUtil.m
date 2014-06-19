@@ -48,7 +48,7 @@ NSString * const FIRST_GROUP_PATTERN = @"(\\$\\d)";
 NSString * const FIRST_GROUP_ONLY_PREFIX_PATTERN = @"^\\(?\\$1\\)?";
 NSString * const NP_PATTERN = @"\\$NP";
 NSString * const FG_PATTERN = @"\\$FG";
-NSString * const VALID_ALPHA_PHONE_PATTERN_STRING = @"(?:.*?[A-Za-z]){3}.*";
+NSString * const VALID_ALPHA_PHONE_PATTERN_STRING = @"^(?:.*?[A-Za-z]){3}.*$";
 NSString * const UNIQUE_INTERNATIONAL_PREFIX = @"[\\d]+(?:[~\\u2053\\u223C\\uFF5E][\\d]+)?";
 
 NSString * const NON_BREAKING_SPACE = @"\u00a0";
@@ -80,6 +80,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 #pragma mark - NBPhoneNumberUtil interface -
 @interface NBPhoneNumberUtil () {
     NSMutableDictionary *regexPatternCache;
+    NSMutableDictionary *fullRegexCache;
     NSLock *lockPatternCache;
 }
 
@@ -139,22 +140,22 @@ static NSDictionary *DIGIT_MAPPINGS;
 + (NSString*)stringByTrimming:(NSString*)aString
 {
     if (aString == nil || aString.length <= 0) return aString;
-    
+
     aString = [NBPhoneNumberUtil normalizeNonBreakingSpace:aString];
-    
+
     NSString *aRes = @"";
     NSArray *newlines = [aString componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
     for (NSString *line in newlines)
     {
         NSString *performedString = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        
+
         if (performedString.length > 0)
             aRes = [aRes stringByAppendingString:performedString];
     }
-    
+
     if (newlines.count <= 0)
         return aString;
-    
+
     return aRes;
 }
 
@@ -177,29 +178,35 @@ static NSDictionary *DIGIT_MAPPINGS;
 #pragma mark - Regular expression Utilities -
 - (BOOL)hasValue:(NSString*)string
 {
-    string = [NBPhoneNumberUtil normalizeNonBreakingSpace:string];
-    
-    if (string == nil || [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length <= 0) {
-        return NO;
+    NSCharacterSet * whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    NSUInteger length = [string length];
+    for (NSUInteger i=0; i<length; i++) {
+        unichar ch = [string characterAtIndex:i];
+        if ((ch != 0xa0 && ![whitespace characterIsMember:ch])) {
+            return YES;
+        }
     }
-    
-    return YES;
+    return NO;
 }
 
 
 - (NSRegularExpression *)regularExpressionWithPattern:(NSString *)pattern options:(NSRegularExpressionOptions)options error:(NSError **)error
 {
     [lockPatternCache lock];
-    
+
     @try {
         if (!regexPatternCache) {
             regexPatternCache = [[NSMutableDictionary alloc] init];
         }
-        
+
         NSRegularExpression *regex = [regexPatternCache objectForKey:pattern];
         if (!regex) {
             regex = [NSRegularExpression regularExpressionWithPattern:pattern options:options error:error];
-            [regexPatternCache setObject:regex forKey:pattern];
+            if (regex != nil && pattern != nil) {
+                [regexPatternCache setObject:regex forKey:pattern];
+            } else {
+                NSLog(@"%@ ERROR: %@", NSStringFromSelector(_cmd), *error);
+            }
         }
         return regex;
     }
@@ -223,18 +230,18 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (sourceString == nil || sourceString.length <= 0 || pattern == nil || pattern.length <= 0) {
         return -1;
     }
-    
+
     NSError *error = nil;
     NSRegularExpression *currentPattern = [self regularExpressionWithPattern:pattern options:0 error:&error];
     NSArray *matches = [currentPattern matchesInString:sourceString options:0 range:NSMakeRange(0, sourceString.length)];
-    
+
     int foundPosition = -1;
-    
+
     if (matches.count > 0) {
         NSTextCheckingResult *match = [matches objectAtIndex:0];
         return (int)match.range.location;
     }
-    
+
     return foundPosition;
 }
 
@@ -245,7 +252,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (finded.location != NSNotFound) {
         return (int)finded.location;
     }
-    
+
     return -1;
 }
 
@@ -254,16 +261,16 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSString *replacementResult = [sourceString copy];
     NSError *error = nil;
-    
+
     NSRegularExpression *currentPattern = [self regularExpressionWithPattern:pattern options:0 error:&error];
     NSRange replaceRange = [currentPattern rangeOfFirstMatchInString:sourceString options:0 range:NSMakeRange(0, sourceString.length)];
-    
+
     if (replaceRange.location != NSNotFound) {
         replacementResult = [currentPattern stringByReplacingMatchesInString:[sourceString mutableCopy] options:0
                                                                        range:replaceRange
                                                                 withTemplate:templateString];
     }
-    
+
     return replacementResult;
 }
 
@@ -272,13 +279,13 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSString *replacementResult = [sourceString copy];
     NSError *error = nil;
-    
+
     NSRegularExpression *currentPattern = [self regularExpressionWithPattern:pattern options:0 error:&error];
     NSArray *matches = [currentPattern matchesInString:sourceString options:0 range:NSMakeRange(0, sourceString.length)];
-    
+
     if ([matches count] == 1) {
         NSRange replaceRange = [currentPattern rangeOfFirstMatchInString:sourceString options:0 range:NSMakeRange(0, sourceString.length)];
-        
+
         if (replaceRange.location != NSNotFound) {
             replacementResult = [currentPattern stringByReplacingMatchesInString:[sourceString mutableCopy] options:0
                                                                            range:replaceRange
@@ -286,13 +293,13 @@ static NSDictionary *DIGIT_MAPPINGS;
         }
         return replacementResult;
     }
-    
+
     if ([matches count] > 1) {
         replacementResult = [currentPattern stringByReplacingMatchesInString:[replacementResult mutableCopy] options:0
                                                                        range:NSMakeRange(0, sourceString.length) withTemplate:templateString];
         return replacementResult;
     }
-    
+
     return replacementResult;
 }
 
@@ -321,12 +328,12 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSArray *matches = [self matchesByRegex:sourceString regex:pattern];
     NSMutableArray *matchString = [[NSMutableArray alloc] init];
-    
+
     for (NSTextCheckingResult *match in matches) {
         NSString *curString = [sourceString substringWithRange:match.range];
         [matchString addObject:curString];
     }
-    
+
     return matchString;
 }
 
@@ -336,13 +343,13 @@ static NSDictionary *DIGIT_MAPPINGS;
     NSError *error = nil;
     NSRegularExpression *currentPattern = [self regularExpressionWithPattern:pattern options:0 error:&error];
     NSArray *matches = [currentPattern matchesInString:sourceString options:0 range:NSMakeRange(0, sourceString.length)];
-    
+
     for (NSTextCheckingResult *match in matches) {
         if (match.range.location == 0) {
             return YES;
         }
     }
-    
+
     return NO;
 }
 
@@ -350,7 +357,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSString*)stringByReplacingOccurrencesString:(NSString *)sourceString withMap:(NSDictionary *)dicMap removeNonMatches:(BOOL)bRemove
 {
     NSMutableString *targetString = [[NSMutableString alloc] initWithString:@""];
-    
+
     for(unsigned int i=0; i<sourceString.length; i++)
     {
         unichar oneChar = [sourceString characterAtIndex:i];
@@ -364,7 +371,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             }
         }
     }
-    
+
     return targetString;
 }
 
@@ -399,7 +406,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (phoneNumber.italianLeadingZero) {
         return [NSString stringWithFormat:@"0%@", phoneNumber.nationalNumber];
     }
-    
+
     return [NSString stringWithFormat:@"%@", phoneNumber.nationalNumber];
 }
 
@@ -409,13 +416,13 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (self.mapCN2CCode == nil || [self.mapCN2CCode count] <= 0) {
         return nil;
     }
-    
+
     id res = [self.mapCN2CCode objectForKey:[NSString stringWithFormat:@"%@", countryCodeNumber]];
-    
+
     if (res && [res isKindOfClass:[NSArray class]] && [((NSArray*)res) count] > 0) {
         return res;
     }
-    
+
     return nil;
 }
 
@@ -425,13 +432,13 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (self.mapCCode2CN == nil || [self.mapCCode2CN count] <= 0) {
         return nil;
     }
-    
+
     id res = [self.mapCCode2CN objectForKey:regionCode];
-    
-    if (res) {
+
+    if (res != nil) {
         return res;
     }
-    
+
     return nil;
 }
 
@@ -441,20 +448,20 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (id)init
 {
     self = [super init];
-    if (self)
+    if (self != nil)
     {
         lockPatternCache = [[NSLock alloc] init];
         [self initRegularExpressionSet];
         [self initNormalizationMappings];
     }
-    
+
     return self;
 }
 
 - (id)initWithBundle:(NSBundle *)bundle metaData:(NSString *)metaData
 {
 	self = [self init];
-	if (self) {
+	if (self != nil) {
 		[self setupResources:bundle metaData:metaData];
 	}
 	return self;
@@ -473,18 +480,18 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (id)initForTest
 {
     self = [super init];
-    if (self)
+    if (self != nil)
     {
         [self initRegularExpressionSet];
         [self initNormalizationMappings];
-        
+
         NSDictionary *resData = [self loadMetadata:@"NBPhoneNumberMetadataForTesting"];
         _coreMetaData = [resData objectForKey:@"countryToMetadata"];
         _mapCN2CCode = [resData objectForKey:@"countryCodeToRegionCodeMap"];
-        
+
         [self initCC2CN];
     }
-    
+
     return self;
 }
 
@@ -492,7 +499,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSDictionary*)loadMetadata:(NSString*)name
 {
     NSDictionary *unarchiveData = nil;
-    
+
     @try {
 		NSString *filePath = [self.libPhoneBundle pathForResource:name ofType:@"plist"];
         NSData *fileData = [NSData dataWithContentsOfFile:filePath];
@@ -501,7 +508,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     @catch (NSException *exception) {
         return unarchiveData;
     }
-    
+
     return unarchiveData;
 }
 
@@ -509,45 +516,45 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (void)initRegularExpressionSet
 {
     NSString *EXTN_PATTERNS_FOR_PARSING = @"(?:;ext=([0-9０-９٠-٩۰-۹]{1,7})|[  \\t,]*(?:e?xt(?:ensi(?:ó?|ó))?n?|ｅ?ｘｔｎ?|[,xｘX#＃~～]|int|anexo|ｉｎｔ)[:\\.．]?[  \\t,-]*([0-9０-９٠-٩۰-۹]{1,7})#?|[- ]+([0-9０-９٠-٩۰-۹]{1,5})#)$";
-    
+
     NSError *error = nil;
-    
+
     if (!PLUS_CHARS_PATTERN) {
         PLUS_CHARS_PATTERN = [self regularExpressionWithPattern:[NSString stringWithFormat:@"[%@]+", PLUS_CHARS] options:0 error:&error];
     }
-    
+
     if (!LEADING_PLUS_CHARS_PATTERN) {
         LEADING_PLUS_CHARS_PATTERN = [NSString stringWithFormat:@"^[%@]+", PLUS_CHARS];
     }
-    
+
     if (!CAPTURING_DIGIT_PATTERN) {
         CAPTURING_DIGIT_PATTERN = [self regularExpressionWithPattern:[NSString stringWithFormat:@"([%@])", VALID_DIGITS_STRING] options:0 error:&error];
     }
-    
+
     if (!VALID_START_CHAR_PATTERN) {
         VALID_START_CHAR_PATTERN = [NSString stringWithFormat:@"[%@%@]", PLUS_CHARS, VALID_DIGITS_STRING];
     }
-    
+
     if (!SECOND_NUMBER_START_PATTERN) {
         SECOND_NUMBER_START_PATTERN = @"[\\\\\\/] *x";
     }
-    
+
     if (!VALID_ALPHA_PHONE_PATTERN) {
         VALID_ALPHA_PHONE_PATTERN = [self regularExpressionWithPattern:VALID_ALPHA_PHONE_PATTERN_STRING options:0 error:&error];
     }
-    
+
     if (!UNWANTED_END_CHAR_PATTERN) {
         UNWANTED_END_CHAR_PATTERN = [NSString stringWithFormat:@"[^%@%@#]+$", VALID_DIGITS_STRING, VALID_ALPHA];
     }
-    
+
     if (!EXTN_PATTERN) {
         EXTN_PATTERN = [NSString stringWithFormat:@"(?:%@)$", EXTN_PATTERNS_FOR_PARSING];
     }
-    
+
     if (!SEPARATOR_PATTERN) {
         SEPARATOR_PATTERN = [NSString stringWithFormat:@"[%@]+", VALID_PUNCTUATION];
     }
-    
+
     if (!VALID_PHONE_NUMBER_PATTERN) {
         VALID_PHONE_NUMBER_PATTERN = @"^[0-9０-９٠-٩۰-۹]{2}$|^[+＋]*(?:[-x‐-―−ー－-／  ­​⁠　()（）［］.\\[\\]/~⁓∼～*]*[0-9０-９٠-٩۰-۹]){3,}[-x‐-―−ー－-／  ­​⁠　()（）［］.\\[\\]/~⁓∼～*A-Za-z0-9０-９٠-٩۰-۹]*(?:;ext=([0-9０-９٠-٩۰-۹]{1,7})|[  \\t,]*(?:e?xt(?:ensi(?:ó?|ó))?n?|ｅ?ｘｔｎ?|[,xｘ#＃~～]|int|anexo|ｉｎｔ)[:\\.．]?[  \\t,-]*([0-9０-９٠-٩۰-۹]{1,7})#?|[- ]+([0-9０-９٠-٩۰-۹]{1,5})#)?$";
     }
@@ -593,14 +600,14 @@ static NSDictionary *DIGIT_MAPPINGS;
                                    @"0", @"0", @"1", @"1", @"2", @"2", @"3", @"3", @"4", @"4", @"5", @"5", @"6", @"6", @"7", @"7", @"8", @"8", @"9", @"9",
                                    @"+", @"+", @"*", @"*", nil];
     }
-    
+
     if (!ALPHA_MAPPINGS) {
         ALPHA_MAPPINGS = [NSDictionary dictionaryWithObjectsAndKeys:
                           @"2", @"A", @"2", @"B", @"2", @"C", @"3", @"D", @"3", @"E", @"3", @"F", @"4", @"G", @"4", @"H", @"4", @"I", @"5", @"J",
                           @"5", @"K", @"5", @"L", @"6", @"M", @"6", @"N", @"6", @"O", @"7", @"P", @"7", @"Q", @"7", @"R", @"7", @"S", @"8", @"T",
                           @"8", @"U", @"8", @"V", @"9", @"W", @"9", @"X", @"9", @"Y", @"9", @"Z", nil];
     }
-    
+
     if (!ALL_NORMALIZATION_MAPPINGS) {
         ALL_NORMALIZATION_MAPPINGS = [NSDictionary dictionaryWithObjectsAndKeys:
                                       @"0", @"0", @"1", @"1", @"2", @"2", @"3", @"3", @"4", @"4", @"5", @"5", @"6", @"6", @"7", @"7", @"8", @"8", @"9", @"9",
@@ -614,7 +621,7 @@ static NSDictionary *DIGIT_MAPPINGS;
                                       @"5", @"K", @"5", @"L", @"6", @"M", @"6", @"N", @"6", @"O", @"7", @"P", @"7", @"Q", @"7", @"R", @"7", @"S", @"8", @"T",
                                       @"8", @"U", @"8", @"V", @"9", @"W", @"9", @"X", @"9", @"Y", @"9", @"Z", nil];
     }
-    
+
     if (!ALL_PLUS_NUMBER_GROUPING_SYMBOLS) {
         ALL_PLUS_NUMBER_GROUPING_SYMBOLS = [NSDictionary dictionaryWithObjectsAndKeys:
                                             @"0", @"0", @"1", @"1", @"2", @"2", @"3", @"3", @"4", @"4", @"5", @"5", @"6", @"6", @"7", @"7", @"8", @"8", @"9", @"9",
@@ -691,16 +698,16 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSString*)extractPossibleNumber:(NSString*)number
 {
     number = [NBPhoneNumberUtil normalizeNonBreakingSpace:number];
-    
+
     NSString *possibleNumber = @"";
     int start = [self stringPositionByRegex:number regex:VALID_START_CHAR_PATTERN];
-    
+
     if (start >= 0)
     {
         possibleNumber = [number substringFromIndex:start];
         // Remove trailing non-alpha non-numerical characters.
         possibleNumber = [self replaceStringByRegex:possibleNumber regex:UNWANTED_END_CHAR_PATTERN withTemplate:@""];
-        
+
         // Check for extra numbers at the end.
         int secondNumberStart = [self stringPositionByRegex:number regex:SECOND_NUMBER_START_PATTERN];
         if (secondNumberStart > 0)
@@ -712,7 +719,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         possibleNumber = @"";
     }
-    
+
     return possibleNumber;
 }
 
@@ -732,12 +739,12 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (BOOL)isViablePhoneNumber:(NSString*)phoneNumber
 {
     phoneNumber = [NBPhoneNumberUtil normalizeNonBreakingSpace:phoneNumber];
-    
+
     if (phoneNumber.length < MIN_LENGTH_FOR_NSN_)
     {
         return NO;
     }
-    
+
     return [self matchesEntirely:VALID_PHONE_NUMBER_PATTERN string:phoneNumber];
 }
 
@@ -762,7 +769,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSString*)normalizePhoneNumber:(NSString*)number
 {
     number = [NBPhoneNumberUtil normalizeNonBreakingSpace:number];
-    
+
     if ([self matchesEntirely:VALID_ALPHA_PHONE_PATTERN_STRING string:number])
     {
         return [self normalizeHelper:number normalizationReplacements:ALL_NORMALIZATION_MAPPINGS removeNonMatches:true];
@@ -771,7 +778,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return [self normalizeDigitsOnly:number];
     }
-    
+
     return nil;
 }
 
@@ -792,7 +799,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return;
     }
-    
+
     (*number) = [self normalizePhoneNumber:(*number)];
 }
 
@@ -808,7 +815,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSString*)normalizeDigitsOnly:(NSString*)number
 {
     number = [NBPhoneNumberUtil normalizeNonBreakingSpace:number];
-    
+
     return [self stringByReplacingOccurrencesString:number
                                             withMap:self.DIGIT_MAPPINGS removeNonMatches:YES];
 }
@@ -897,7 +904,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSString *regionCode = [self getRegionCodeForNumber:phoneNumber];
     NBPhoneMetaData *metadata = [self getMetadataForRegion:regionCode];
-    
+
     if (metadata == nil) {
         return 0;
     }
@@ -907,11 +914,11 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (metadata.nationalPrefix == nil && phoneNumber.italianLeadingZero == NO) {
         return 0;
     }
-    
+
     if ([self isNumberGeographical:phoneNumber] == NO) {
         return 0;
     }
-    
+
     return [self getLengthOfNationalDestinationCode:phoneNumber];
 }
 
@@ -955,7 +962,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (int)getLengthOfNationalDestinationCode:(NBPhoneNumber*)phoneNumber error:(NSError **)error
 {
     int res = 0;
-    
+
     @try {
         res = [self getLengthOfNationalDestinationCode:phoneNumber];
     }
@@ -966,7 +973,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             (*error) = [NSError errorWithDomain:exception.name code:0 userInfo:userInfo];
         }
     }
-    
+
     return res;
 }
 
@@ -981,10 +988,10 @@ static NSDictionary *DIGIT_MAPPINGS;
     } else {
         copiedProto = phoneNumber;
     }
-    
+
     NSString *nationalSignificantNumber = [self format:copiedProto numberFormat:NBEPhoneNumberFormatINTERNATIONAL];
     NSMutableArray *numberGroups = [[self componentsSeparatedByRegex:nationalSignificantNumber regex:NON_DIGITS_PATTERN] mutableCopy];
-    
+
     // The pattern will start with '+COUNTRY_CODE ' so the first group will always
     // be the empty string (before the + symbol) and the second group will be the
     // country calling code. The third group will be area code if it is not the
@@ -995,14 +1002,14 @@ static NSDictionary *DIGIT_MAPPINGS;
     if ([numberGroups count] > 0 && ((NSString*)[numberGroups objectAtIndex:0]).length <= 0) {
         [numberGroups removeObjectAtIndex:0];
     }
-    
+
     if ([numberGroups count] <= 2) {
         return 0;
     }
-    
+
     NSArray *regionCodes = [self regionCodeFromCountryCode:phoneNumber.countryCode];
     BOOL isExists = NO;
-    
+
     for (NSString *regCode in regionCodes)
     {
         if ([regCode isEqualToString:@"AR"])
@@ -1011,7 +1018,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             break;
         }
     }
-    
+
     if (isExists && [self getNumberType:phoneNumber] == NBEPhoneNumberTypeMOBILE)
     {
         // Argentinian mobile numbers, when formatted in the international format,
@@ -1023,7 +1030,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         // it easier to obtain the NDC.
         return (int)((NSString*)[numberGroups objectAtIndex:2]).length + 1;
     }
-    
+
     return (int)((NSString*)[numberGroups objectAtIndex:1]).length;
 }
 
@@ -1050,7 +1057,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     unichar character = 0;
     NSString *newDigit = @"";
     unsigned int numberLength = (unsigned int)sourceString.length;
-    
+
     for (unsigned int i = 0; i<numberLength; ++i)
     {
         character = [sourceString characterAtIndex:i];
@@ -1064,10 +1071,10 @@ static NSDictionary *DIGIT_MAPPINGS;
             [normalizedNumber appendString:[NSString stringWithFormat: @"%C", character]];
         }
         // If neither of the above are NO, we remove this character.
-        
+
         //NSLog(@"[%@]", normalizedNumber);
     }
-    
+
     return normalizedNumber;
 }
 
@@ -1088,7 +1095,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         hasFound = YES;
     }
-    
+
     return (([nationalPrefixFormattingRule length] == 0) || hasFound);
 }
 
@@ -1146,7 +1153,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return YES;
     }
-    
+
     return NO;
 }
 
@@ -1198,10 +1205,10 @@ static NSDictionary *DIGIT_MAPPINGS;
             return rawInput;
         }
     }
-    
+
     NSNumber *countryCallingCode = phoneNumber.countryCode;
     NSString *nationalSignificantNumber = [self getNationalSignificantNumber:phoneNumber];
-    
+
     if (numberFormat == NBEPhoneNumberFormatE164)
     {
         // Early exit for E164 case (even if the country calling code is invalid)
@@ -1210,26 +1217,26 @@ static NSDictionary *DIGIT_MAPPINGS;
         return [self prefixNumberWithCountryCallingCode:countryCallingCode phoneNumberFormat:NBEPhoneNumberFormatE164
                                 formattedNationalNumber:nationalSignificantNumber formattedExtension:@""];
     }
-    
+
     if ([self hasValidCountryCallingCode:countryCallingCode] == NO)
     {
         return nationalSignificantNumber;
     }
-    
+
     // Note getRegionCodeForCountryCode() is used because formatting information
     // for regions which share a country calling code is contained by only one
     // region for performance reasons. For example, for NANPA regions it will be
     // contained in the metadata for US.
     NSArray *regionCodeArray = [self regionCodeFromCountryCode:countryCallingCode];
     NSString *regionCode = [regionCodeArray objectAtIndex:0];
-    
+
     // Metadata cannot be nil because the country calling code is valid (which
     // means that the region code cannot be ZZ and must be one of our supported
     // region codes).
     NBPhoneMetaData *metadata = [self getMetadataForRegionOrCallingCode:countryCallingCode regionCode:regionCode];
     NSString *formattedExtension = [self maybeGetFormattedExtension:phoneNumber metadata:metadata numberFormat:numberFormat];
     NSString *formattedNationalNumber = [self formatNsn:nationalSignificantNumber metadata:metadata phoneNumberFormat:numberFormat carrierCode:nil];
-    
+
     return [self prefixNumberWithCountryCallingCode:countryCallingCode phoneNumberFormat:numberFormat
                             formattedNationalNumber:formattedNationalNumber formattedExtension:formattedExtension];
 }
@@ -1271,11 +1278,11 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSNumber *countryCallingCode = number.countryCode;
     NSString *nationalSignificantNumber = [self getNationalSignificantNumber:number];
-    
+
     if ([self hasValidCountryCallingCode:countryCallingCode] == NO) {
         return nationalSignificantNumber;
     }
-    
+
     // Note getRegionCodeForCountryCode() is used because formatting information
     // for regions which share a country calling code is contained by only one
     // region for performance reasons. For example, for NANPA regions it will be
@@ -1285,11 +1292,11 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (regionCodes != nil && regionCodes.count > 0) {
         regionCode = [regionCodes objectAtIndex:0];
     }
-    
+
     // Metadata cannot be nil because the country calling code is valid
     /** @type {i18n.phonenumbers.PhoneMetadata} */
     NBPhoneMetaData *metadata = [self getMetadataForRegionOrCallingCode:countryCallingCode regionCode:regionCode];
-    
+
     NSString *formattedNumber = @"";
     NBNumberFormat *formattingPattern = [self chooseFormattingPatternForNumber:userDefinedFormats nationalNumber:nationalSignificantNumber];
     if (formattingPattern == nil)
@@ -1302,7 +1309,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         // for different numbers have the appropriate national prefix.
         NBNumberFormat *numFormatCopy = [formattingPattern copy];
         NSString *nationalPrefixFormattingRule = formattingPattern.nationalPrefixFormattingRule;
-        
+
         if (nationalPrefixFormattingRule.length > 0)
         {
             NSString *nationalPrefix = metadata.nationalPrefix;
@@ -1318,13 +1325,13 @@ static NSDictionary *DIGIT_MAPPINGS;
                 numFormatCopy.nationalPrefixFormattingRule = @"";
             }
         }
-        
+
         formattedNumber = [self formatNsnUsingPattern:nationalSignificantNumber
                                     formattingPattern:numFormatCopy numberFormat:numberFormat carrierCode:nil];
     }
-    
+
     NSString *formattedExtension = [self maybeGetFormattedExtension:number metadata:metadata numberFormat:numberFormat];
-    
+
     //NSLog(@"!@#  prefixNumberWithCountryCallingCode called [%@]", formattedExtension);
     return [self prefixNumberWithCountryCallingCode:countryCallingCode
                                   phoneNumberFormat:numberFormat
@@ -1370,7 +1377,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return nationalSignificantNumber;
     }
-    
+
     // Note getRegionCodeForCountryCode() is used because formatting information
     // for regions which share a country calling code is contained by only one
     // region for performance reasons. For example, for NANPA regions it will be
@@ -1430,7 +1437,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         if (error != NULL)
             (*error) = [NSError errorWithDomain:exception.name code:0 userInfo:userInfo];
     }
-    
+
     return res;
 }
 
@@ -1479,13 +1486,13 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return [self hasValue:number.rawInput] ? number.rawInput : @"";
     }
-    
+
     NSString *formattedNumber = @"";
     // Clear the extension, as that part cannot normally be dialed together with
     // the main number.
     NBPhoneNumber *numberNoExt = [number copy];
     numberNoExt.extension = @"";
-    
+
     NSString *regionCode = [self getRegionCodeForCountryCode:countryCallingCode];
     if ([regionCallingFrom isEqualToString:regionCode])
     {
@@ -1535,7 +1542,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         return withFormatting ? [self format:numberNoExt numberFormat:NBEPhoneNumberFormatINTERNATIONAL] :
         [self format:numberNoExt numberFormat:NBEPhoneNumberFormatE164];
     }
-    
+
     return withFormatting ?
     formattedNumber : [self normalizeHelper:formattedNumber normalizationReplacements:DIALLABLE_CHAR_MAPPINGS removeNonMatches:YES];
 }
@@ -1574,7 +1581,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         if (error != NULL)
             (*error) = [NSError errorWithDomain:exception.name code:0 userInfo:userInfo];
     }
-    
+
     return res;
 }
 
@@ -1584,14 +1591,14 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return [self format:number numberFormat:NBEPhoneNumberFormatINTERNATIONAL];
     }
-    
+
     NSNumber *countryCallingCode = [number.countryCode copy];
     NSString *nationalSignificantNumber = [self getNationalSignificantNumber:number];
     if ([self hasValidCountryCallingCode:countryCallingCode] == NO)
     {
         return nationalSignificantNumber;
     }
-    
+
     if (countryCallingCode.unsignedIntegerValue == NANPA_COUNTRY_CODE_)
     {
         if ([self isNANPACountry:regionCallingFrom])
@@ -1616,7 +1623,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     // Metadata cannot be nil because we checked 'isValidRegionCode()' above.
     NBPhoneMetaData *metadataForRegionCallingFrom = [self getMetadataForRegion:regionCallingFrom];
     NSString *internationalPrefix = metadataForRegionCallingFrom.internationalPrefix;
-    
+
     // For regions that have multiple international prefixes, the international
     // format of the number is returned, unless there is a preferred international
     // prefix.
@@ -1629,18 +1636,18 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         internationalPrefixForFormatting = metadataForRegionCallingFrom.preferredInternationalPrefix;
     }
-    
+
     NSString *regionCode = [self getRegionCodeForCountryCode:countryCallingCode];
     // Metadata cannot be nil because the country calling code is valid.
     NBPhoneMetaData *metadataForRegion = [self getMetadataForRegionOrCallingCode:countryCallingCode regionCode:regionCode];
     NSString *formattedNationalNumber = [self formatNsn:nationalSignificantNumber metadata:metadataForRegion
                                       phoneNumberFormat:NBEPhoneNumberFormatINTERNATIONAL carrierCode:nil];
     NSString *formattedExtension = [self maybeGetFormattedExtension:number metadata:metadataForRegion numberFormat:NBEPhoneNumberFormatINTERNATIONAL];
-    
+
     NSString *hasLenth = [NSString stringWithFormat:@"%@ %@ %@%@", internationalPrefixForFormatting, countryCallingCode, formattedNationalNumber, formattedExtension];
     NSString *hasNotLength = [self prefixNumberWithCountryCallingCode:countryCallingCode phoneNumberFormat:NBEPhoneNumberFormatINTERNATIONAL
                                               formattedNationalNumber:formattedNationalNumber formattedExtension:formattedExtension];
-    
+
     return internationalPrefixForFormatting.length > 0 ? hasLenth:hasNotLength;
 }
 
@@ -1705,7 +1712,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         if (error != NULL)
             (*error) = [NSError errorWithDomain:exception.name code:0 userInfo:userInfo];
     }
-    
+
     return res;
 }
 
@@ -1718,14 +1725,14 @@ static NSDictionary *DIGIT_MAPPINGS;
         // format the number as a group without national prefix.
         return number.rawInput;
     }
-    
+
     if (number.countryCodeSource == nil)
     {
         return [self format:number numberFormat:NBEPhoneNumberFormatNATIONAL];
     }
-    
+
     NSString *formattedNumber = @"";
-    
+
     switch ([number.countryCodeSource intValue])
     {
         case NBECountryCodeSourceFROM_NUMBER_WITH_PLUS_SIGN:
@@ -1789,7 +1796,7 @@ static NSDictionary *DIGIT_MAPPINGS;
                 formattedNumber = nationalFormat;
                 break;
             }
-            
+
             if (firstGroupRange.location <= 0)
             {
                 formattedNumber = nationalFormat;
@@ -1810,7 +1817,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             break;
         }
     }
-    
+
     NSString *rawInput = number.rawInput;
     // If no digit is inserted/removed/modified as a result of our formatting, we
     // return the formatted phone number; otherwise we return the raw input the
@@ -1820,7 +1827,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         NSString *normalizedFormattedNumber = [self normalizeHelper:formattedNumber normalizationReplacements:DIALLABLE_CHAR_MAPPINGS removeNonMatches:YES];
         /** @type {string} */
         NSString *normalizedRawInput = [self normalizeHelper:rawInput normalizationReplacements:DIALLABLE_CHAR_MAPPINGS removeNonMatches:YES];
-        
+
         if ([normalizedFormattedNumber isEqualToString:normalizedRawInput] == NO)
         {
             formattedNumber = rawInput;
@@ -1853,7 +1860,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         NSString *subString = [normalizedNationalNumber substringFromIndex:nationalPrefix.length];
         NSError *aError = nil;
         isValid = [self isValidNumber:[self parse:subString defaultRegion:regionCode error:&aError]];
-        
+
         if (aError != nil)
             return NO;
     }
@@ -1885,12 +1892,12 @@ static NSDictionary *DIGIT_MAPPINGS;
     NSNumber *countryCallingCode = number.countryCode;
     NSString *phoneNumberRegion = [self getRegionCodeForCountryCode:countryCallingCode];
     NBPhoneMetaData *metadata = [self getMetadataForRegionOrCallingCode:countryCallingCode regionCode:phoneNumberRegion];
-    
+
     if (metadata == nil)
     {
         return NO;
     }
-    
+
     NSString *nationalNumber = [self getNationalSignificantNumber:number];
     NBNumberFormat *formatRule = [self chooseFormattingPatternForNumber:metadata.numberFormats nationalNumber:nationalNumber];
     return formatRule != nil;
@@ -1948,7 +1955,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return [self formatOutOfCountryCallingNumber:number regionCallingFrom:regionCallingFrom];
     }
-    
+
     NSNumber *countryCode = number.countryCode;
     if ([self hasValidCountryCallingCode:countryCode] == NO)
     {
@@ -1973,7 +1980,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             rawInput = [rawInput substringFromIndex:firstNationalNumberDigit];
         }
     }
-    
+
     NBPhoneMetaData *metadataForRegionCallingFrom = [self getMetadataForRegion:regionCallingFrom];
     if (countryCode.unsignedIntegerValue == NANPA_COUNTRY_CODE_)
     {
@@ -1991,7 +1998,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             // If no pattern above is matched, we format the original input.
             return rawInput;
         }
-        
+
         NBNumberFormat *newFormat = [formattingPattern copy];
         // The first group is the first group of digits that the user wrote
         // together.
@@ -2005,10 +2012,10 @@ static NSDictionary *DIGIT_MAPPINGS;
         // digits) decide whether a national prefix needs to be used, since we have
         // overridden the pattern to match anything, but that is not the case in the
         // metadata to date.
-        
+
         return [self formatNsnUsingPattern:rawInput formattingPattern:newFormat numberFormat:NBEPhoneNumberFormatNATIONAL carrierCode:nil];
     }
-    
+
     NSString *internationalPrefixForFormatting = @"";
     // If an unsupported region-calling-from is entered, or a country with
     // multiple international prefixes, the international format of the number is
@@ -2019,7 +2026,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         internationalPrefixForFormatting =
         [self matchesEntirely:UNIQUE_INTERNATIONAL_PREFIX string:internationalPrefix] ? internationalPrefix : metadataForRegionCallingFrom.preferredInternationalPrefix;
     }
-    
+
     NSString *regionCode = [self getRegionCodeForCountryCode:countryCode];
     // Metadata cannot be nil because the country calling code is valid.
     NBPhoneMetaData *metadataForRegion = [self getMetadataForRegionOrCallingCode:countryCode regionCode:regionCode];
@@ -2061,12 +2068,12 @@ static NSDictionary *DIGIT_MAPPINGS;
     // for the INTERNATIONAL format instead of using the numberDesc.numberFormats.
     NSArray *availableFormats = ([intlNumberFormats count] <= 0 || numberFormat == NBEPhoneNumberFormatNATIONAL) ? metadata.numberFormats : intlNumberFormats;
     NBNumberFormat *formattingPattern = [self chooseFormattingPatternForNumber:availableFormats nationalNumber:phoneNumber];
-    
+
     if (formattingPattern == nil)
     {
         return phoneNumber;
     }
-    
+
     return [self formatNsnUsingPattern:phoneNumber formattingPattern:formattingPattern numberFormat:numberFormat carrierCode:opt_carrierCode];
 }
 
@@ -2093,7 +2100,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             }
         }
     }
-    
+
     return nil;
 }
 
@@ -2117,7 +2124,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     NSString *numberFormatRule = formattingPattern.format;
     NSString *domesticCarrierCodeFormattingRule = formattingPattern.domesticCarrierCodeFormattingRule;
     NSString *formattedNationalNumber = @"";
-    
+
     if (numberFormat == NBEPhoneNumberFormatNATIONAL && [self hasValue:opt_carrierCode] && domesticCarrierCodeFormattingRule.length > 0)
     {
         // Replace the $CC in the formatting rule with the desired carrier code.
@@ -2142,12 +2149,12 @@ static NSDictionary *DIGIT_MAPPINGS;
             formattedNationalNumber = [self replaceStringByRegex:nationalNumber regex:formattingPattern.pattern withTemplate:numberFormatRule];
         }
     }
-    
+
     if (numberFormat == NBEPhoneNumberFormatRFC3966)
     {
         // Strip any leading punctuation.
         formattedNationalNumber = [self replaceStringByRegex:formattedNationalNumber regex:[NSString stringWithFormat:@"^%@", SEPARATOR_PATTERN] withTemplate:@""];
-        
+
         // Replace the rest with a dash between each number group.
         formattedNationalNumber = [self replaceStringByRegex:formattedNationalNumber regex:SEPARATOR_PATTERN withTemplate:@"-"];
     }
@@ -2187,18 +2194,18 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NBPhoneNumber*)getExampleNumberForType:(NSString*)regionCode type:(NBEPhoneNumberType)type error:(NSError *__autoreleasing *)error
 {
     NBPhoneNumber *res = nil;
-    
+
     if ([self isValidRegionCode:regionCode] == NO)
     {
         return nil;
     }
-    
+
     NBPhoneNumberDesc *desc = [self getNumberDescByType:[self getMetadataForRegion:regionCode] type:type];
     if ([self hasValue:desc.exampleNumber ])
     {
         return [self parse:desc.exampleNumber defaultRegion:regionCode error:error];
     }
-    
+
     return res;
 }
 
@@ -2217,9 +2224,9 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NBPhoneNumber*)getExampleNumberForNonGeoEntity:(NSNumber *)countryCallingCode error:(NSError *__autoreleasing *)error
 {
     NBPhoneNumber *res = nil;
-    
+
     NBPhoneMetaData *metadata = [self getMetadataForNonGeographicalRegion:countryCallingCode];
-    
+
     if (metadata != nil)
     {
         NBPhoneNumberDesc *desc = metadata.generalDesc;
@@ -2229,7 +2236,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             return [self parse:callCode defaultRegion:UNKNOWN_REGION_ error:error];
         }
     }
-    
+
     return res;
 }
 
@@ -2326,7 +2333,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return NBEPhoneNumberTypeUNKNOWN;
     }
-    
+
     NSString *nationalSignificantNumber = [self getNationalSignificantNumber:phoneNumber];
     return [self getNumberTypeHelper:nationalSignificantNumber metadata:metadata];
 }
@@ -2341,7 +2348,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NBEPhoneNumberType)getNumberTypeHelper:(NSString*)nationalNumber metadata:(NBPhoneMetaData*)metadata
 {
     NBPhoneNumberDesc *generalNumberDesc = metadata.generalDesc;
-    
+
     //NSLog(@"getNumberTypeHelper - UNKNOWN 1");
     if ([self hasValue:generalNumberDesc.nationalNumberPattern] == NO ||
         [self isNumberMatchingDesc:nationalNumber numberDesc:generalNumberDesc] == NO)
@@ -2349,63 +2356,63 @@ static NSDictionary *DIGIT_MAPPINGS;
         //NSLog(@"getNumberTypeHelper - UNKNOWN 2");
         return NBEPhoneNumberTypeUNKNOWN;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - PREMIUM_RATE 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.premiumRate])
     {
         //NSLog(@"getNumberTypeHelper - PREMIUM_RATE 2");
         return NBEPhoneNumberTypePREMIUM_RATE;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - TOLL_FREE 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.tollFree])
     {
         //NSLog(@"getNumberTypeHelper - TOLL_FREE 2");
         return NBEPhoneNumberTypeTOLL_FREE;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - SHARED_COST 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.sharedCost])
     {
         //NSLog(@"getNumberTypeHelper - SHARED_COST 2");
         return NBEPhoneNumberTypeSHARED_COST;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - VOIP 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.voip])
     {
         //NSLog(@"getNumberTypeHelper - VOIP 2");
         return NBEPhoneNumberTypeVOIP;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - PERSONAL_NUMBER 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.personalNumber])
     {
         //NSLog(@"getNumberTypeHelper - PERSONAL_NUMBER 2");
         return NBEPhoneNumberTypePERSONAL_NUMBER;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - PAGER 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.pager])
     {
         //NSLog(@"getNumberTypeHelper - PAGER 2");
         return NBEPhoneNumberTypePAGER;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - UAN 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.uan])
     {
         //NSLog(@"getNumberTypeHelper - UAN 2");
         return NBEPhoneNumberTypeUAN;
     }
-    
+
     //NSLog(@"getNumberTypeHelper - VOICEMAIL 1");
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.voicemail])
     {
         //NSLog(@"getNumberTypeHelper - VOICEMAIL 2");
         return NBEPhoneNumberTypeVOICEMAIL;
     }
-    
+
     if ([self isNumberMatchingDesc:nationalNumber numberDesc:metadata.fixedLine])
     {
         if (metadata.sameMobileAndFixedLinePattern)
@@ -2421,14 +2428,14 @@ static NSDictionary *DIGIT_MAPPINGS;
         //NSLog(@"getNumberTypeHelper - FIXED_LINE");
         return NBEPhoneNumberTypeFIXED_LINE;
     }
-    
+
     // Otherwise, test to see if the number is mobile. Only do this if certain
     // that the patterns for mobile and fixed line aren't the same.
     if ([metadata sameMobileAndFixedLinePattern] == NO && [self isNumberMatchingDesc:nationalNumber numberDesc:metadata.mobile])
     {
         return NBEPhoneNumberTypeMOBILE;
     }
-    
+
     return NBEPhoneNumberTypeUNKNOWN;
 }
 
@@ -2446,11 +2453,11 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return nil;
     }
-    
+
     regionCode = [regionCode uppercaseString];
-    
+
     NBPhoneMetaData *metadata = [self.coreMetaData objectForKey:regionCode];
-    
+
     return metadata;
 }
 
@@ -2476,13 +2483,13 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     if (numberDesc == nil)
         return NO;
-    
+
     if ([self hasValue:numberDesc.possibleNumberPattern] == NO || [numberDesc.possibleNumberPattern isEqual:@"NA"])
         return [self matchesEntirely:numberDesc.nationalNumberPattern string:nationalNumber];
-    
+
     if ([self hasValue:numberDesc.nationalNumberPattern] == NO || [numberDesc.nationalNumberPattern isEqual:@"NA"])
         return [self matchesEntirely:numberDesc.possibleNumberPattern string:nationalNumber];
-    
+
     return [self matchesEntirely:numberDesc.possibleNumberPattern string:nationalNumber] &&
     [self matchesEntirely:numberDesc.nationalNumberPattern string:nationalNumber];
 }
@@ -2537,10 +2544,10 @@ static NSDictionary *DIGIT_MAPPINGS;
         // number does not match that of the region code.
         return NO;
     }
-    
+
     NBPhoneNumberDesc *generalNumDesc = metadata.generalDesc;
     NSString *nationalSignificantNumber = [self getNationalSignificantNumber:number];
-    
+
     // For regions where we don't have metadata for PhoneNumberDesc, we treat any
     // number passed in as a valid number if its national significant number is
     // between the minimum and maximum lengths defined by ITU for a national
@@ -2550,7 +2557,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         unsigned int numberLength = (unsigned int)nationalSignificantNumber.length;
         return numberLength > MIN_LENGTH_FOR_NSN_ && numberLength <= MAX_LENGTH_FOR_NSN_;
     }
-    
+
     return [self getNumberTypeHelper:nationalSignificantNumber metadata:metadata] != NBEPhoneNumberTypeUNKNOWN;
 }
 
@@ -2570,13 +2577,13 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return nil;
     }
-    
+
     NSArray *regionCodes = [self regionCodeFromCountryCode:phoneNumber.countryCode];
     if (regionCodes == nil || [regionCodes count] <= 0)
     {
         return nil;
     }
-    
+
     if ([regionCodes count] == 1)
     {
         return [regionCodes objectAtIndex:0];
@@ -2593,18 +2600,18 @@ static NSDictionary *DIGIT_MAPPINGS;
  * @param {Array.<string>} regionCodes
  * @return {?string}
  * @private
- 
+
  */
 - (NSString*)getRegionCodeForNumberFromRegionList:(NBPhoneNumber*)phoneNumber regionCodes:(NSArray*)regionCodes
 {
     NSString *nationalNumber = [self getNationalSignificantNumber:phoneNumber];
     unsigned int regionCodesCount = (unsigned int)[regionCodes count];
-    
+
     for (unsigned int i = 0; i<regionCodesCount; i++)
     {
         NSString *regionCode = [regionCodes objectAtIndex:i];
         NBPhoneMetaData *metadata = [self getMetadataForRegion:regionCode];
-        
+
         if ([self hasValue:metadata.leadingDigits])
         {
             if ([self stringPositionByRegex:nationalNumber regex:metadata.leadingDigits] == 0)
@@ -2617,7 +2624,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             return regionCode;
         }
     }
-    
+
     return nil;
 }
 
@@ -2669,7 +2676,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return @0;
     }
-    
+
     NSError *error = nil;
     NSNumber *res = [self getCountryCodeForValidRegion:regionCode error:&error];
     if (error != nil)
@@ -2693,17 +2700,17 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSNumber*)getCountryCodeForValidRegion:(NSString*)regionCode error:(NSError**)error
 {
     NBPhoneMetaData *metadata = [self getMetadataForRegion:regionCode];
-    
+
     if (metadata == nil)
     {
         NSDictionary *userInfo = [NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"Invalid region code:%@", regionCode]
                                                              forKey:NSLocalizedDescriptionKey];
         if (error != NULL)
             (*error) = [NSError errorWithDomain:@"INVALID_REGION_CODE" code:0 userInfo:userInfo];
-        
+
         return @-1;
     }
-    
+
     return metadata.countryCode;
 }
 
@@ -2734,14 +2741,14 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return nil;
     }
-    
+
     NSString *nationalPrefix = metadata.nationalPrefix;
     // If no national prefix was found, we return nil.
     if (nationalPrefix.length == 0)
     {
         return nil;
     }
-    
+
     if (stripNonDigits)
     {
         // Note: if any other non-numeric symbols are ever used in national
@@ -2762,7 +2769,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (BOOL)isNANPACountry:(NSString*)regionCode
 {
     BOOL isExists = NO;
-    
+
     NSArray *res = [self regionCodeFromCountryCode:[NSNumber numberWithUnsignedInteger:NANPA_COUNTRY_CODE_]];
     for (NSString *inRegionCode in res)
     {
@@ -2771,7 +2778,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             isExists = YES;
         }
     }
-    
+
     return regionCode != nil && isExists;
 }
 
@@ -2789,7 +2796,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NBPhoneMetaData *mainMetadataForCallingCode = [self getMetadataForRegionOrCallingCode:countryCallingCode
                                                                                regionCode:[self getRegionCodeForCountryCode:countryCallingCode]];
-    
+
     return mainMetadataForCallingCode != nil && mainMetadataForCallingCode.leadingZeroPossible;
 }
 
@@ -2812,13 +2819,13 @@ static NSDictionary *DIGIT_MAPPINGS;
         // Number is too short, or doesn't match the basic phone number pattern.
         return NO;
     }
-    
+
     number = [NBPhoneNumberUtil normalizeNonBreakingSpace:number];
-    
+
     /** @type {!goog.string.StringBuffer} */
     NSString *strippedNumber = [number copy];
     [self maybeStripExtension:&strippedNumber];
-    
+
     return [self matchesEntirely:VALID_ALPHA_PHONE_PATTERN_STRING string:strippedNumber];
 }
 
@@ -2871,7 +2878,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return NBEValidationResultIS_POSSIBLE;
     }
-    
+
     if ([self stringPositionByRegex:number regex:numberPattern] == 0)
     {
         return NBEValidationResultTOO_LONG;
@@ -2920,7 +2927,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         if (error != NULL)
             (*error) = [NSError errorWithDomain:exception.name code:0 userInfo:userInfo];
     }
-    
+
     return res;
 }
 
@@ -2938,17 +2945,17 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return NBEValidationResultINVALID_COUNTRY_CODE;
     }
-    
+
     NSString *regionCode = [self getRegionCodeForCountryCode:countryCode];
     // Metadata cannot be nil because the country calling code is valid.
     NBPhoneMetaData *metadata = [self getMetadataForRegionOrCallingCode:countryCode regionCode:regionCode];
     NBPhoneNumberDesc *generalNumDesc = metadata.generalDesc;
-    
+
     // Handling case of numbers with no metadata.
     if ([self hasValue:generalNumDesc.nationalNumberPattern] == NO)
     {
         unsigned int numberLength = (unsigned int)nationalNumber.length;
-        
+
         if (numberLength < MIN_LENGTH_FOR_NSN_) {
             return NBEValidationResultTOO_SHORT;
         } else if (numberLength > MAX_LENGTH_FOR_NSN_) {
@@ -2957,7 +2964,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             return NBEValidationResultIS_POSSIBLE;
         }
     }
-    
+
     NSString *possibleNumberPattern = generalNumDesc.possibleNumberPattern;
     return [self testNumberLengthAgainstPattern:possibleNumberPattern number:nationalNumber];
 }
@@ -2989,7 +2996,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (BOOL)isPossibleNumberString:(NSString*)number regionDialingFrom:(NSString*)regionDialingFrom error:(NSError**)error
 {
     number = [NBPhoneNumberUtil normalizeNonBreakingSpace:number];
-    
+
     BOOL res = [self isPossibleNumber:[self parse:number defaultRegion:regionDialingFrom error:error]];
     return res;
 }
@@ -3010,7 +3017,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return YES;
     }
-    
+
     NBPhoneNumber *numberCopy = [number copy];
     NSNumber *nationalNumber = number.nationalNumber;
     do {
@@ -3022,7 +3029,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         }
     }
     while ([self isValidNumber:numberCopy] == NO);
-    
+
     number.nationalNumber = nationalNumber;
     return YES;
 }
@@ -3041,20 +3048,20 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NSNumber *)extractCountryCode:(NSString *)fullNumber nationalNumber:(NSString **)nationalNumber
 {
     fullNumber = [NBPhoneNumberUtil normalizeNonBreakingSpace:fullNumber];
-    
+
     if ((fullNumber.length == 0) || ([[fullNumber substringToIndex:1] isEqualToString:@"0"]))
     {
         // Country codes do not begin with a '0'.
         return @0;
     }
-    
+
     unsigned int numberLength = (unsigned int)fullNumber.length;
-    
+
     for (unsigned int i = 1; i <= MAX_LENGTH_COUNTRY_CODE_ && i <= numberLength; ++i)
     {
         NSString *subNumber = [fullNumber substringWithRange:NSMakeRange(0, i)];
         NSNumber *potentialCountryCode = [NSNumber numberWithInteger:[subNumber integerValue]];
-        
+
         NSArray *regionCodes = [self regionCodeFromCountryCode:potentialCountryCode];
         if (regionCodes != nil && regionCodes.count > 0)
         {
@@ -3068,7 +3075,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             return potentialCountryCode;
         }
     }
-    
+
     return @0;
 }
 
@@ -3121,7 +3128,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return @0;
     }
-    
+
     NSString *fullNumber = [number copy];
     // Set the default prefix to be something that will never match.
     NSString *possibleCountryIddPrefix = @"";
@@ -3129,21 +3136,21 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         possibleCountryIddPrefix = defaultRegionMetadata.internationalPrefix;
     }
-    
+
     if (possibleCountryIddPrefix == nil)
     {
         possibleCountryIddPrefix = @"NonMatch";
     }
-    
+
     /** @type {i18n.phonenumbers.PhoneNumber.CountryCodeSource} */
     NBECountryCodeSource countryCodeSource = [self maybeStripInternationalPrefixAndNormalize:&fullNumber
                                                                            possibleIddPrefix:possibleCountryIddPrefix];
-    
+
     if (keepRawInput)
     {
         (*phoneNumber).countryCodeSource = [NSNumber numberWithInt:countryCodeSource];
     }
-    
+
     if (countryCodeSource != NBECountryCodeSourceFROM_DEFAULT_COUNTRY)
     {
         if (fullNumber.length <= MIN_LENGTH_FOR_NSN_)
@@ -3152,25 +3159,25 @@ static NSDictionary *DIGIT_MAPPINGS;
                                                                  forKey:NSLocalizedDescriptionKey];
             if (error != NULL)
                 (*error) = [NSError errorWithDomain:@"TOO_SHORT_AFTER_IDD" code:0 userInfo:userInfo];
-            
+
             return @0;
         }
-        
+
         NSNumber *potentialCountryCode = [self extractCountryCode:fullNumber nationalNumber:nationalNumber];
-        
+
         if (![potentialCountryCode isEqualToNumber:@0])
         {
             (*phoneNumber).countryCode = potentialCountryCode;
             return potentialCountryCode;
         }
-        
+
         // If this fails, they must be using a strange country calling code that we
         // don't recognize, or that doesn't exist.
         NSDictionary *userInfo = [NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"INVALID_COUNTRY_CODE:%@", potentialCountryCode]
                                                              forKey:NSLocalizedDescriptionKey];
         if (error != NULL)
             (*error) = [NSError errorWithDomain:@"INVALID_COUNTRY_CODE" code:0 userInfo:userInfo];
-        
+
         return @0;
     }
     else if (defaultRegionMetadata != nil)
@@ -3181,16 +3188,16 @@ static NSDictionary *DIGIT_MAPPINGS;
         NSNumber *defaultCountryCode = defaultRegionMetadata.countryCode;
         NSString *defaultCountryCodeString = [NSString stringWithFormat:@"%@", defaultCountryCode];
         NSString *normalizedNumber = [fullNumber copy];
-        
+
         if ([normalizedNumber hasPrefix:defaultCountryCodeString])
         {
             NSString *potentialNationalNumber = [normalizedNumber substringFromIndex:defaultCountryCodeString.length];
             NBPhoneNumberDesc *generalDesc = defaultRegionMetadata.generalDesc;
-            
+
             NSString *validNumberPattern = generalDesc.nationalNumberPattern;
             // Passing null since we don't need the carrier code.
             [self maybeStripNationalPrefixAndCarrierCode:&potentialNationalNumber metadata:defaultRegionMetadata carrierCode:nil];
-            
+
             NSString *potentialNationalNumberStr = [potentialNationalNumber copy];
             NSString *possibleNumberPattern = generalDesc.possibleNumberPattern;
             // If the number was not valid before but is valid now, or if it was too
@@ -3233,19 +3240,19 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return NO;
     }
-    
+
     NSString *numberStr = [(*number) copy];
-    
+
     if ([self stringPositionByRegex:numberStr regex:iddPattern] == 0)
     {
         NSTextCheckingResult *matched = [[self matchesByRegex:numberStr regex:iddPattern] objectAtIndex:0];
         NSString *matchedString = [numberStr substringWithRange:matched.range];
         unsigned int matchEnd = (unsigned int)matchedString.length;
         NSString *remainString = [numberStr substringFromIndex:matchEnd];
-        
+
         NSRegularExpression *currentPattern = CAPTURING_DIGIT_PATTERN;
         NSArray *matchedGroups = [currentPattern matchesInString:remainString options:0 range:NSMakeRange(0, remainString.length)];
-        
+
         if (matchedGroups && [matchedGroups count] > 0 && [matchedGroups objectAtIndex:0] != nil)
         {
             NSString *digitMatched = [remainString substringWithRange:((NSTextCheckingResult*)[matchedGroups objectAtIndex:0]).range];
@@ -3257,11 +3264,11 @@ static NSDictionary *DIGIT_MAPPINGS;
                 }
             }
         }
-        
+
         (*number) = [remainString copy];
         return YES;
     }
-    
+
     return NO;
 }
 
@@ -3286,7 +3293,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         return NBECountryCodeSourceFROM_DEFAULT_COUNTRY;
     }
-    
+
     // Check to see if the number begins with one or more plus signs.
     if ([self isStartingStringByRegex:(*numberStr) regex:LEADING_PLUS_CHARS_PATTERN])
     {
@@ -3296,11 +3303,11 @@ static NSDictionary *DIGIT_MAPPINGS;
         (*numberStr) = [self normalizePhoneNumber:(*numberStr)];
         return NBECountryCodeSourceFROM_NUMBER_WITH_PLUS_SIGN;
     }
-    
+
     // Attempt to parse the first digits as an international prefix.
     NSString *iddPattern = [possibleIddPrefix copy];
     [self normalizeSB:numberStr];
-    
+
     return [self parsePrefixAsIdd:iddPattern sourceString:numberStr] ? NBECountryCodeSourceFROM_NUMBER_WITH_IDD : NBECountryCodeSourceFROM_DEFAULT_COUNTRY;
 }
 
@@ -3322,29 +3329,29 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (number == NULL) {
         return NO;
     }
-    
+
     NSString *numberStr = [(*number) copy];
     unsigned int numberLength = (unsigned int)numberStr.length;
     NSString *possibleNationalPrefix = metadata.nationalPrefixForParsing;
-    
+
     if (numberLength == 0 || [self hasValue:possibleNationalPrefix] == NO)
     {
         // Early return for numbers of zero length.
         return NO;
     }
-    
+
     // Attempt to parse the first digits as a national prefix.
     NSString *prefixPattern = [NSString stringWithFormat:@"^(?:%@)", possibleNationalPrefix];
     NSError *error = nil;
     NSRegularExpression *currentPattern = [self regularExpressionWithPattern:prefixPattern options:0 error:&error];
-    
+
     NSArray *prefixMatcher = [currentPattern matchesInString:numberStr options:0 range:NSMakeRange(0, numberLength)];
     if (prefixMatcher && [prefixMatcher count] > 0)
     {
         NSString *nationalNumberRule = metadata.generalDesc.nationalNumberPattern;
         NSTextCheckingResult *firstMatch = [prefixMatcher objectAtIndex:0];
         NSString *firstMatchString = [numberStr substringWithRange:firstMatch.range];
-        
+
         // prefixMatcher[numOfGroups] == null implies nothing was captured by the
         // capturing groups in possibleNationalPrefix; therefore, no transformation
         // is necessary, and we just remove the national prefix.
@@ -3354,7 +3361,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         NSRange firstRange = [firstMatch rangeAtIndex:numOfGroups];
         NSString *firstMatchStringWithGroup = (firstRange.location != NSNotFound && firstRange.location < numberStr.length) ? [numberStr substringWithRange:firstRange] : nil;
         BOOL noTransform = (transformRule == nil || transformRule.length == 0 || [self hasValue:firstMatchStringWithGroup] == NO);
-        
+
         if (noTransform) {
             transformedNumber = [numberStr substringFromIndex:firstMatchString.length];
         } else {
@@ -3366,7 +3373,7 @@ static NSDictionary *DIGIT_MAPPINGS;
             [self matchesEntirely:nationalNumberRule string:transformedNumber] == NO) {
             return NO;
         }
-        
+
         if ((noTransform && numOfGroups > 0 && [self hasValue:firstMatchStringWithGroup]) || (!noTransform && numOfGroups > 1))
         {
             if (carrierCode != NULL && (*carrierCode) != nil) {
@@ -3379,7 +3386,7 @@ static NSDictionary *DIGIT_MAPPINGS;
                 (*carrierCode) = [(*carrierCode) stringByAppendingString:firstMatchString];
             }
         }
-        
+
         (*number) = transformedNumber;
         return YES;
     }
@@ -3401,10 +3408,10 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (number == NULL) {
         return @"";
     }
-    
+
     NSString *numberStr = [(*number) copy];
     int mStart = [self stringPositionByRegex:numberStr regex:EXTN_PATTERN];
-    
+
     // If we find a potential extension, and the number preceding this is a viable
     // number, we assume it is an extension.
     if (mStart >= 0 && [self isViablePhoneNumber:[numberStr substringWithRange:NSMakeRange(0, mStart)]])
@@ -3423,12 +3430,12 @@ static NSDictionary *DIGIT_MAPPINGS;
                 NSString *tokenedString = [numberStr substringWithRange:NSMakeRange(0, mStart)];
                 (*number) = @"";
                 (*number) = [(*number) stringByAppendingString:tokenedString];
-                
+
                 return matchString;
             }
         }
     }
-    
+
     return @"";
 }
 
@@ -3478,7 +3485,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSError *aError = nil;
     NBPhoneNumber *phoneNumber = [self parseHelper:numberToParse defaultRegion:defaultRegion keepRawInput:NO checkRegion:YES error:&aError];
-    
+
     if (aError != nil) {
         if (error != NULL) {
             (*error) = [self errorWithObject:aError.description withDomain:aError.domain];
@@ -3497,7 +3504,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (NBPhoneNumber*)parseWithPhoneCarrierRegion:(NSString*)numberToParse error:(NSError**)error
 {
     numberToParse = [NBPhoneNumberUtil normalizeNonBreakingSpace:numberToParse];
-    
+
     NSString *defaultRegion = nil;
 #if TARGET_IPHONE_SIMULATOR
     defaultRegion = [[NSLocale currentLocale] objectForKey: NSLocaleCountryCode];
@@ -3507,7 +3514,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     if ([UNKNOWN_REGION_ isEqualToString:defaultRegion]) {
         //TODO: if defaultRegion is unknown get defaultRegion other way
     }
-    
+
     return [self parse:numberToParse defaultRegion:defaultRegion error:error];
 }
 
@@ -3515,11 +3522,11 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     CTTelephonyNetworkInfo *networkInfo = [[CTTelephonyNetworkInfo alloc] init];
     NSString *isoCode = [[networkInfo subscriberCellularProvider] isoCountryCode];
-    
+
 	if (!isoCode) {
 		isoCode = UNKNOWN_REGION_;
 	}
-    
+
     return isoCode;
 }
 
@@ -3582,43 +3589,43 @@ static NSDictionary *DIGIT_MAPPINGS;
                  keepRawInput:(BOOL)keepRawInput checkRegion:(BOOL)checkRegion error:(NSError**)error
 {
     numberToParse = [NBPhoneNumberUtil normalizeNonBreakingSpace:numberToParse];
-    
+
     if (numberToParse == nil)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"NOT_A_NUMBER:%@", numberToParse] withDomain:@"NOT_A_NUMBER"];
-        
+
         return nil;
     }
     else if (numberToParse.length > MAX_INPUT_STRING_LENGTH_)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"TOO_LONG:%@", numberToParse] withDomain:@"TOO_LONG"];
-        
+
         return nil;
     }
-    
+
     NSString *nationalNumber = @"";
     [self buildNationalNumberForParsing:numberToParse nationalNumber:&nationalNumber];
-    
+
     if ([self isViablePhoneNumber:nationalNumber] == NO)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"NOT_A_NUMBER:%@", nationalNumber] withDomain:@"NOT_A_NUMBER"];
-        
+
         return nil;
     }
-    
+
     // Check the region supplied is valid, or that the extracted number starts
     // with some sort of + sign so the number's region can be determined.
     if (checkRegion && [self checkRegionForParsing:nationalNumber defaultRegion:defaultRegion] == NO)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"INVALID_COUNTRY_CODE:%@", defaultRegion] withDomain:@"INVALID_COUNTRY_CODE"];
-        
+
         return nil;
     }
-    
+
     NBPhoneNumber *phoneNumber = [[NBPhoneNumber alloc] init];
     if (keepRawInput)
     {
@@ -3631,7 +3638,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     {
         phoneNumber.extension = [extension copy];
     }
-    
+
     NBPhoneMetaData *regionMetadata = [self getMetadataForRegion:defaultRegion];
     // Check to see if the number is given in international format so we know
     // whether this number is from the default region or not.
@@ -3645,7 +3652,7 @@ static NSDictionary *DIGIT_MAPPINGS;
                                      nationalNumber:&normalizedNationalNumber
                                        keepRawInput:keepRawInput
                                         phoneNumber:&phoneNumber error:&aError];
-        
+
         if (aError != nil)
         {
             if ([aError.domain isEqualToString:@"INVALID_COUNTRY_CODE"] && [self stringPositionByRegex:nationalNumberStr
@@ -3663,18 +3670,18 @@ static NSDictionary *DIGIT_MAPPINGS;
                 {
                     if (error != NULL)
                         (*error) = [self errorWithObject:aError.description withDomain:aError.domain];
-                    
+
                     return nil;
                 }
             } else {
                 if (error != NULL)
                     (*error) = [self errorWithObject:aError.description withDomain:aError.domain];
-                
+
                 return nil;
             }
         }
     }
-    
+
     if (![countryCode isEqualToNumber:@0])
     {
         NSString *phoneNumberRegion = [self getRegionCodeForCountryCode:countryCode];
@@ -3691,7 +3698,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         // given to parse.
         [self normalizeSB:&nationalNumber];
         normalizedNationalNumber = [normalizedNationalNumber stringByAppendingString:nationalNumber];
-        
+
         if (defaultRegion != nil)
         {
             countryCode = regionMetadata.countryCode;
@@ -3702,50 +3709,50 @@ static NSDictionary *DIGIT_MAPPINGS;
             [phoneNumber clearCountryCodeSource];
         }
     }
-    
+
     if (normalizedNationalNumber.length < MIN_LENGTH_FOR_NSN_)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"TOO_SHORT_NSN:%@", normalizedNationalNumber] withDomain:@"TOO_SHORT_NSN"];
-        
+
         return nil;
     }
-    
+
     if (regionMetadata != nil)
     {
         NSString *carrierCode = @"";
         [self maybeStripNationalPrefixAndCarrierCode:&normalizedNationalNumber metadata:regionMetadata carrierCode:&carrierCode];
-        
+
         if (keepRawInput)
         {
             phoneNumber.PreferredDomesticCarrierCode = [carrierCode copy];
         }
     }
-    
+
     NSString *normalizedNationalNumberStr = [normalizedNationalNumber copy];
-    
+
     unsigned int lengthOfNationalNumber = (unsigned int)normalizedNationalNumberStr.length;
     if (lengthOfNationalNumber < MIN_LENGTH_FOR_NSN_)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"TOO_SHORT_NSN:%@", normalizedNationalNumber] withDomain:@"TOO_SHORT_NSN"];
-        
+
         return nil;
     }
-    
+
     if (lengthOfNationalNumber > MAX_LENGTH_FOR_NSN_)
     {
         if (error != NULL)
             (*error) = [self errorWithObject:[NSString stringWithFormat:@"TOO_LONG:%@", normalizedNationalNumber] withDomain:@"TOO_LONG"];
-        
+
         return nil;
     }
-    
+
     if ([normalizedNationalNumberStr hasPrefix:@"0"])
     {
         phoneNumber.italianLeadingZero = YES;
     }
-    
+
     phoneNumber.nationalNumber =  [NSNumber numberWithLongLong:[normalizedNationalNumberStr longLongValue]];
     return phoneNumber;
 }
@@ -3767,7 +3774,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     if (nationalNumber == NULL)
         return;
-    
+
     int indexOfPhoneContext = [self indexOfStringByString:numberToParse target:RFC3966_PHONE_CONTEXT];
     if (indexOfPhoneContext > 0)
     {
@@ -3790,7 +3797,7 @@ static NSDictionary *DIGIT_MAPPINGS;
                 (*nationalNumber) = [(*nationalNumber) stringByAppendingString:[numberToParse substringFromIndex:phoneContextStart]];
             }
         }
-        
+
         // Now append everything between the "tel:" prefix and the phone-context.
         // This should include the national number, an optional extension or
         // isdn-subaddress component.
@@ -3804,7 +3811,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         // characters that could not be the start of a phone number.)
         (*nationalNumber) = [(*nationalNumber) stringByAppendingString:[self extractPossibleNumber:numberToParse]];
     }
-    
+
     // Delete the isdn-subaddress and everything after it if it is present.
     // Note extension won't appear at the same time with isdn-subaddress
     // according to paragraph 5.3 of the RFC3966 spec,
@@ -3892,7 +3899,7 @@ static NSDictionary *DIGIT_MAPPINGS;
                     firstNumber = [self parse:firstNumberIn defaultRegion:secondNumberRegion error:&aNestedError];
                     if (aNestedError != nil)
                         return NBEMatchTypeNOT_A_NUMBER;
-                    
+
                     NBEMatchType match = [self isNumberMatch:firstNumber second:secondNumberIn];
                     if (match == NBEMatchTypeEXACT_MATCH)
                     {
@@ -3912,7 +3919,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     } else {
         firstNumber = [firstNumberIn copy];
     }
-    
+
     if ([secondNumberIn isKindOfClass:[NSString class]]) {
         NSError *parseError;
         secondNumber = [self parse:secondNumberIn defaultRegion:UNKNOWN_REGION_ error:&parseError];
@@ -3928,35 +3935,35 @@ static NSDictionary *DIGIT_MAPPINGS;
     else {
         secondNumber = [secondNumberIn copy];
     }
-    
+
     // First clear raw_input, country_code_source and
     // preferred_domestic_carrier_code fields and any empty-string extensions so
     // that we can use the proto-buffer equality method.
     firstNumber.rawInput = @"";
     [firstNumber clearCountryCodeSource];
     firstNumber.PreferredDomesticCarrierCode = @"";
-    
+
     secondNumber.rawInput = @"";
     [secondNumber clearCountryCodeSource];
     secondNumber.PreferredDomesticCarrierCode = @"";
-    
+
     if (firstNumber.extension != nil && firstNumber.extension.length == 0) {
         firstNumber.extension = nil;
     }
-    
+
     if (secondNumber.extension != nil && secondNumber.extension.length == 0) {
         secondNumber.extension = nil;
     }
-    
+
     // Early exit if both had extensions and these are different.
     if ([self hasValue:firstNumber.extension] && [self hasValue:secondNumber.extension] &&
         [firstNumber.extension isEqualToString:secondNumber.extension] == NO) {
         return NBEMatchTypeNO_MATCH;
     }
-    
+
     NSNumber *firstNumberCountryCode = firstNumber.countryCode;
     NSNumber *secondNumberCountryCode = secondNumber.countryCode;
-    
+
     // Both had country_code specified.
     if (![firstNumberCountryCode isEqualToNumber:@0] && ![secondNumberCountryCode isEqualToNumber:@0]) {
         if ([firstNumber isEqual:secondNumber]) {
@@ -3982,7 +3989,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     if ([firstNumber isEqual:secondNumber]) {
         return NBEMatchTypeNSN_MATCH;
     }
-    
+
     if ([self isNationalNumberSuffixOfTheOther:firstNumber second:secondNumber]) {
         return NBEMatchTypeSHORT_NSN_MATCH;
     }
@@ -4005,7 +4012,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSString *firstNumberNationalNumber = [NSString stringWithFormat:@"%@", firstNumber.nationalNumber];
     NSString *secondNumberNationalNumber = [NSString stringWithFormat:@"%@", secondNumber.nationalNumber];
-    
+
     // Note that endsWith returns NO if the numbers are equal.
     return [firstNumberNationalNumber hasSuffix:secondNumberNationalNumber] ||
     [secondNumberNationalNumber hasSuffix:firstNumberNationalNumber];
@@ -4064,21 +4071,29 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (BOOL)matchesEntirely:(NSString*)regex string:(NSString*)str
 {
     if ([regex rangeOfString:@"^"].location == NSNotFound) {
-        regex = [NSString stringWithFormat:@"^(?:%@)$", regex];
+        if (!fullRegexCache) {
+            fullRegexCache = [NSMutableDictionary new];
+        }
+        NSString *fullRegex = fullRegexCache[regex];
+        if (!fullRegex) {
+            fullRegex = [NSString stringWithFormat:@"^(?:%@)$", regex];
+            fullRegexCache[regex] = fullRegex;
+        }
+        regex = fullRegex;
     }
-    
+
     NSError *error = nil;
     NSRegularExpression *currentPattern = [self regularExpressionWithPattern:regex options:0 error:&error];
     NSTextCheckingResult *matchResult = [currentPattern firstMatchInString:str options:0 range:NSMakeRange(0, str.length)];
-    
+
     if (matchResult != nil) {
         NSString *founds = [str substringWithRange:matchResult.range];
-        
+
         if ([founds isEqualToString:str]) {
             return YES;
         }
     }
-    
+
     return NO;
 }
 
@@ -4086,24 +4101,24 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     NSArray *countryCodes = [NSLocale ISOCountryCodes];
     NSMutableArray *resultMetadata = [[NSMutableArray alloc] init];
-    
+
     for (NSString *countryCode in countryCodes)
     {
         id countryDictionaryInstance = [NSDictionary dictionaryWithObject:countryCode forKey:NSLocaleCountryCode];
         NSString *identifier = [NSLocale localeIdentifierFromComponents:countryDictionaryInstance];
         NSString *country = [[NSLocale currentLocale] displayNameForKey:NSLocaleIdentifier value:identifier];
-        
+
         NSMutableDictionary *countryMeta = [[NSMutableDictionary alloc] init];
         [countryMeta setObject:country forKey:@"name"];
         [countryMeta setObject:countryCode forKey:@"code"];
-        
+
         NBPhoneMetaData *metaData = [self getMetadataForRegion:countryCode];
-        if (metaData)
+        if (metaData != nil)
             [countryMeta setObject:metaData forKey:@"metadata"];
-        
+
         [resultMetadata addObject:countryMeta];
     }
-    
+
     return resultMetadata;
 }
 
