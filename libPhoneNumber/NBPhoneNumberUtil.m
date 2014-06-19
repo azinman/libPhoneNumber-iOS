@@ -435,7 +435,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 
     id res = [self.mapCCode2CN objectForKey:regionCode];
 
-    if (res) {
+    if (res != nil) {
         return res;
     }
 
@@ -448,7 +448,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (id)init
 {
     self = [super init];
-    if (self)
+    if (self != nil)
     {
         lockPatternCache = [[NSLock alloc] init];
         [self initRegularExpressionSet];
@@ -461,7 +461,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (id)initWithBundle:(NSBundle *)bundle metaData:(NSString *)metaData
 {
 	self = [self init];
-	if (self) {
+	if (self != nil) {
 		[self setupResources:bundle metaData:metaData];
 	}
 	return self;
@@ -480,7 +480,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 - (id)initForTest
 {
     self = [super init];
-    if (self)
+    if (self != nil)
     {
         [self initRegularExpressionSet];
         [self initNormalizationMappings];
@@ -4113,7 +4113,7 @@ static NSDictionary *DIGIT_MAPPINGS;
         [countryMeta setObject:countryCode forKey:@"code"];
 
         NBPhoneMetaData *metaData = [self getMetadataForRegion:countryCode];
-        if (metaData)
+        if (metaData != nil)
             [countryMeta setObject:metaData forKey:@"metadata"];
 
         [resultMetadata addObject:countryMeta];
