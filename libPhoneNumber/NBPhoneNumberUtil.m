@@ -79,6 +79,8 @@ static NSDictionary *DIGIT_MAPPINGS;
 
 #pragma mark - NBPhoneNumberUtil interface -
 @interface NBPhoneNumberUtil () {
+    NSMutableDictionary *entireStringRegexCache;
+    NSLock *entireStringCacheLock;
     NSMutableDictionary *regexPatternCache;
     NSMutableDictionary *fullRegexCache;
     NSLock *lockPatternCache;
@@ -190,6 +192,37 @@ static NSDictionary *DIGIT_MAPPINGS;
         }
     }
     return NO;
+}
+
+
+- (NSRegularExpression *)entireRegularExpressionWithPattern:(NSString *)regexPattern
+                                                    options:(NSRegularExpressionOptions)options
+                                                      error:(NSError **)error
+{
+    [entireStringCacheLock lock];
+    
+    @try {
+        if (! entireStringRegexCache) {
+            entireStringRegexCache = [[NSMutableDictionary alloc] init];
+        }
+        
+        NSRegularExpression *regex = [entireStringRegexCache objectForKey:regexPattern];
+        if (! regex)
+        {
+            NSString *finalRegexString = regexPattern;
+            if ([regexPattern rangeOfString:@"^"].location == NSNotFound) {
+                finalRegexString = [NSString stringWithFormat:@"^(?:%@)$", regexPattern];
+            }
+            
+            regex = [self regularExpressionWithPattern:finalRegexString options:0 error:error];
+            [entireStringRegexCache setObject:regex forKey:regexPattern];
+        }
+        
+        return regex;
+    }
+    @finally {
+        [entireStringCacheLock unlock];
+    }
 }
 
 
@@ -409,8 +442,8 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (phoneNumber.italianLeadingZero) {
         return [NSString stringWithFormat:@"0%@", phoneNumber.nationalNumber];
     }
-
-    return [NSString stringWithFormat:@"%@", phoneNumber.nationalNumber];
+    
+    return [phoneNumber.nationalNumber stringValue];
 }
 
 
@@ -419,9 +452,9 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (self.mapCN2CCode == nil || [self.mapCN2CCode count] <= 0) {
         return nil;
     }
-
-    id res = [self.mapCN2CCode objectForKey:[NSString stringWithFormat:@"%@", countryCodeNumber]];
-
+    
+    id res = [self.mapCN2CCode objectForKey:[countryCodeNumber stringValue]];
+    
     if (res && [res isKindOfClass:[NSArray class]] && [((NSArray*)res) count] > 0) {
         return res;
     }
@@ -454,6 +487,7 @@ static NSDictionary *DIGIT_MAPPINGS;
     if (self != nil)
     {
         lockPatternCache = [[NSLock alloc] init];
+        entireStringCacheLock = [[NSLock alloc] init];
         [self initRegularExpressionSet];
         [self initNormalizationMappings];
     }
@@ -4082,20 +4116,13 @@ static NSDictionary *DIGIT_MAPPINGS;
  */
 - (BOOL)matchesEntirely:(NSString*)regex string:(NSString*)str
 {
-    if ([regex rangeOfString:@"^"].location == NSNotFound) {
-        if (!fullRegexCache) {
-            fullRegexCache = [NSMutableDictionary new];
-        }
-        NSString *fullRegex = fullRegexCache[regex];
-        if (!fullRegex) {
-            fullRegex = [NSString stringWithFormat:@"^(?:%@)$", regex];
-            fullRegexCache[regex] = fullRegex;
-        }
-        regex = fullRegex;
+    if ([regex isEqualToString:@"NA"])
+    {
+        return NO;
     }
 
     NSError *error = nil;
-    NSRegularExpression *currentPattern = [self regularExpressionWithPattern:regex options:0 error:&error];
+    NSRegularExpression *currentPattern = [self entireRegularExpressionWithPattern:regex options:0 error:&error];
     NSRange stringRange = NSMakeRange(0, str.length);
     NSTextCheckingResult *matchResult = [currentPattern firstMatchInString:str options:NSMatchingAnchored range:stringRange];
     
