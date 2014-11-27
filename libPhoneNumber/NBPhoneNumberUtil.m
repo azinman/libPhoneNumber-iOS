@@ -4152,6 +4152,9 @@ static NSDictionary *DIGIT_MAPPINGS;
         [countryMeta setObject:country forKey:@"name"];
         [countryMeta setObject:countryCode forKey:@"code"];
 
+        if (country) [countryMeta setObject:country forKey:@"name"];
+        if (countryCode) [countryMeta setObject:countryCode forKey:@"code"];
+        
         NBPhoneMetaData *metaData = [self getMetadataForRegion:countryCode];
         if (metaData != nil)
             [countryMeta setObject:metaData forKey:@"metadata"];
