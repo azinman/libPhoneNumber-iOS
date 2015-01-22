@@ -180,7 +180,8 @@ static NSDictionary *DIGIT_MAPPINGS;
 #pragma mark - Regular expression Utilities -
 - (BOOL)hasValue:(NSString*)string
 {
-    NSCharacterSet * whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+    static NSCharacterSet * whitespace;
+    if (!whitespace) whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
     NSUInteger length = [string length];
     for (NSUInteger i=0; i<length; i++) {
         unichar ch = [string characterAtIndex:i];
