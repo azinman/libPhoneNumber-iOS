@@ -259,12 +259,12 @@
 
 - (id)initWithRegionCode:(NSString*)regionCode
 {
-	return [self initWithRegionCode:regionCode bundle:[NSBundle mainBundle]];
+	return [self initWithRegionCode:regionCode bundle:[NSBundle bundleForClass:[self class]]];
 }
 
 - (id)initWithRegionCodeForTest:(NSString*)regionCode
 {
-	return [self initWithRegionCodeForTest:regionCode bundle:[NSBundle mainBundle]];
+	return [self initWithRegionCodeForTest:regionCode bundle:[NSBundle bundleForClass:[self class]]];
 }
 
 - (id)initWithRegionCode:(NSString*)regionCode bundle:(NSBundle *)bundle

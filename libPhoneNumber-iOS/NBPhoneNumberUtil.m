@@ -112,7 +112,7 @@ static NSDictionary *DIGIT_MAPPINGS;
 {
     static NBPhoneNumberUtil *sharedOnceInstance = nil;
     static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ sharedOnceInstance = [[self alloc] initWithBundle:[NSBundle mainBundle] metaData:@"NBPhoneNumberMetadata"]; });
+    dispatch_once(&onceToken, ^{ sharedOnceInstance = [[self alloc] initWithBundle:[NSBundle bundleForClass:[self class]] metaData:@"NBPhoneNumberMetadata"]; });
     return sharedOnceInstance;
 }
 
