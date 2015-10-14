@@ -4,7 +4,7 @@
 //
 //
 
-#import <Foundation/Foundation.h>
+@import Foundation;
 #import "NBPhoneNumberDefines.h"
 
 extern NSString * const VALID_PUNCTUATION;

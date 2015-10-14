@@ -11,9 +11,7 @@
 #import "NBPhoneMetaData.h"
 #import <math.h>
 
-#import <CoreTelephony/CTTelephonyNetworkInfo.h>
-#import <CoreTelephony/CTCarrier.h>
-
+@import CoreTelephony;
 
 #pragma mark - Static Int variables -
 const static NSUInteger NANPA_COUNTRY_CODE_ = 1;

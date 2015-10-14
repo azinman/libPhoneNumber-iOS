@@ -5,7 +5,7 @@
 //  Created by ishtar on 13. 2. 25..
 //
 
-#import <Foundation/Foundation.h>
+@import Foundation;
 
 @interface NBAsYouTypeFormatter : NSObject
 

@@ -4,7 +4,7 @@
 //  
 //
 
-#import <Foundation/Foundation.h>
+@import Foundation;
 #import "NBPhoneNumberDefines.h"
 
 @interface NBPhoneNumber : NSObject <NSCopying>
